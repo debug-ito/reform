@@ -297,8 +297,14 @@ eitherForm env id' form = do
         Error e  -> Left $ unView view' e
         Ok x     -> Right (unProved x)
 
--- * Ways to construct a Form
+-- ** Ways to construct a Form
 
+-- | Create a trivial 'Form' that has the given @view@, @proof@ and value.
+--
+-- See also: 'pure', 'ipure' and 'view'.
+pureForm :: (Monad m) => view -> proof -> a -> Form m input error view proof a
+pureForm v p a = Form $ do i <- getFormId
+                           return (View $ const v, return $ Ok (Proved p (unitRange i) a))
 
 -- | create a 'Form' from some @view@.
 --
@@ -314,6 +320,37 @@ view view' =
                                    , pos      = FormRange i i
                                    , unProved = ()
                                    })))
+
+
+-- ** Ways to manipulate Forms
+
+-- | Apply the first form to the second, like 'Applicative'.
+--
+-- See also: '<*>' and '<<*>>'.
+apForm :: (Monad m)
+       => Form m input error (v1 -> v2) (p1 -> p2) (a1 -> a2)
+       -> Form m input error v1 p1 a1
+       -> Form m input error v2 p2 a2
+apForm (Form frmF) (Form frmA) =
+  Form $ do ((fview, mfok), (aview, maok)) <- bracketState $
+              do res1 <- frmF
+                 incFormId
+                 res2 <- frmA
+                 return (res1, res2)
+            let result_view = View $ \es -> (unView fview) es (unView aview $ es)
+            fok <- lift $ lift $ mfok
+            aok <- lift $ lift $ maok
+            case (fok, aok) of
+               (Error errs1, Error errs2) -> return (result_view, return $ Error $ errs1 ++ errs2)
+               (Error errs1, _)           -> return (result_view, return $ Error $ errs1)
+               (_          , Error errs2) -> return (result_view, return $ Error $ errs2)
+               (Ok (Proved p (FormRange x _) f), Ok (Proved q (FormRange _ y) a)) ->
+                   return (result_view, return $ Ok $ Proved { proofs   = p q
+                                                             , pos      = FormRange x y
+                                                             , unProved = f a
+                                                             })
+
+infixl 4 `apForm`
 
 -- | Append a unit form to the left. This is useful for adding labels or error
 -- fields.
@@ -357,3 +394,17 @@ mapView :: (Monad m, Functor m)
         -> Form m input error view' proof a  -- ^ Resulting form
 mapView f = Form . fmap (first $ fmap f) . unForm
 
+-- | Zip the view of the first 'Form' to the second.
+-- 
+-- This is a generalized version of '++>' and '<++'.
+zipViewWith :: (Monad m)
+            => (v1 -> v2 -> v3)
+            -> Form m input error v1 () ()
+            -> Form m input error v2 proof a
+            -> Form m input error v3 proof a
+zipViewWith zipper (Form vform) (Form aform) = Form $ do
+  -- Evaluate the form that matters first, so we have a correct range set
+  (aview, r) <- aform
+  (vview, _) <- vform
+  let result_view = View $ \es -> zipper (unView vview $ es) (unView aview $ es)
+  return (result_view, r)

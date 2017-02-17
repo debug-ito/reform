@@ -59,7 +59,9 @@ main = hspec spec
 spec :: Spec
 spec = describe "Form" $ do
   spec_ap
+  spec_apForm
   spec_view
+  spec_zipViewWith
 
 spec_ap :: Spec
 spec_ap = describe "Applicative construction" $ do
@@ -98,8 +100,26 @@ spec_ap = describe "Applicative construction" $ do
         got_data = formToData "foo" env form
     got_data `shouldBe` Right (100, (200, (300, 400), 500), 600, (700, 800))
 
+spec_apForm :: Spec
+spec_apForm = describe "apForm and pureForm" $ do
+  it "should construct view and value (and proof) at the same time" $ do
+    let layout v1 v2 v3 = ( "value 1: " ++ v1
+                            ++ ", value 2: " ++ v2
+                            ++ ", value 3: " ++ v3
+                          )
+        noop () () () = ()
+        form :: SimpleForm (Int,Int,Int)
+        form = R.pureForm layout noop (,,)
+               `R.apForm` inputRead 10 `R.apForm` inputRead 20 `R.apForm` inputRead 30
+        got = formToView "foo" form
+    -- FormId starts with 1 this time because the pure form consumes Id = 0.
+    got `shouldBe` ( "value 1: " ++ expectedFormView "foo" 1 "10"
+                     ++ ", value 2: " ++ expectedFormView "foo" 2 "20"
+                     ++ ", value 3: " ++ expectedFormView "foo" 3 "30"
+                   )
+
 spec_view :: Spec
-spec_view = describe "view-only construction ((++>) etc.)" $ do
+spec_view = describe "view, (++>) and (<++)" $ do
   it "should append together in the Monoid way" $ do
     let form :: SimpleForm ()
         form = R.view "foo" ++> R.view "bar" <++ R.view "buzz"
@@ -137,4 +157,32 @@ spec_view = describe "view-only construction ((++>) etc.)" $ do
     got_data `shouldBe` Left ( expectedFormView "hoge" 0 "100" ++ "No error, "
                                ++ expectedFormView "hoge" 1 "20" ++ "parse error: non-number, "
                                ++ expectedFormView "hoge" 2 "300" ++ "No error"
+                             )
+spec_zipViewWith :: Spec
+spec_zipViewWith = describe "zipViewWith" $ do
+  it "can be used to bind a data view and its error view together" $ do
+    let layout (e1, v1) (e2, v2) (e3, v3) = ( "(1) " ++ v1 ++ "[" ++ e1 ++ "], "
+                                              ++ "(2) " ++ v2 ++ "[" ++ e2 ++ "], "
+                                              ++ "(3) " ++ v3 ++ "[" ++ e3 ++ "]"
+                                            )
+        noop () () () = ()
+        form :: SimpleForm (Int,Int,Int)
+        form = R.pureForm layout noop (,,)
+               `R.apForm` (R.zipViewWith (,) simpleErrors $ inputRead 10)
+               `R.apForm` (R.zipViewWith (,) simpleErrors $ inputRead 20)
+               `R.apForm` (R.zipViewWith (,) simpleErrors $ inputRead 30)
+        got = formToView "hoge" form
+    -- FormId starts with 1 this time because the pure form consumes Id = 0.
+    got `shouldBe` ( "(1) " ++ expectedFormView "hoge" 1 "10" ++ "[No error], "
+                     ++ "(2) " ++ expectedFormView "hoge" 2 "20" ++ "[No error], "
+                     ++ "(3) " ++ expectedFormView "hoge" 3 "30" ++ "[No error]"
+                   )
+    let env = [ (formIdStr "hoge" 1, "HOGE"),
+                (formIdStr "hoge" 2, "222"),
+                (formIdStr "hoge" 3, "quux")
+              ]
+        got_data = formToData "hoge" env form
+    got_data `shouldBe` Left ( "(1) " ++ expectedFormView "hoge" 1 "10" ++ "[parse error: HOGE], "
+                               ++ "(2) " ++ expectedFormView "hoge" 2 "222" ++ "[No error], "
+                               ++ "(3) " ++ expectedFormView "hoge" 3 "30" ++ "[parse error: quux]"
                              )
