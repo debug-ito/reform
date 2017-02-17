@@ -38,6 +38,6 @@ Test-Suite spec
   Hs-source-dirs:      tests
   GHC-options:         -Wall -fno-warn-unused-imports
   Main-is:             Spec.hs
-  Other-extensions:    TypeFamilies
-  Build-depends:       base, reform, mtl,
+  Other-extensions:    TypeFamilies, OverloadedStrings
+  Build-depends:       base, reform, mtl, text,
                        hspec >=2.1.7
