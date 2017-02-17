@@ -360,4 +360,4 @@ zipViewWith zipper (Form vform) (Form aform) = Form $ do
   -- Evaluate the form that matters first, so we have a correct range set
   (aview, r) <- aform
   (vview, _) <- vform
-  return (zipper <$> vview <*> aview, r)
+  return (fmap zipper vview <*> aview, r)
