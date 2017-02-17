@@ -3,13 +3,14 @@ module Main (main,spec) where
 
 import Control.Applicative ((<$>), (<*>))
 import Control.Monad.Reader (Reader, runReader, ask)
-import Data.List (lookup)
+import Data.List (lookup, intercalate)
 import Data.Text.Lazy (Text)
 import Test.Hspec
 import qualified Text.Reform as R
+import Text.Reform ((++>), (<++))
 import qualified Text.Reform.Generalized as RG
 
-newtype SimpleError = SimpleError String
+newtype SimpleError = SimpleError { unSimpleError :: String }
                       deriving (Show,Eq,Ord)
 
 newtype SimpleInput = SimpleInput String
@@ -27,6 +28,11 @@ inputRead init_val = RG.input parse render init_val where
     [] -> Left $ SimpleError $ ("parse error: " ++ i)
     ((ret, _) : _) -> Right ret
   render fid val = "{" ++ show fid ++ ": " ++ show val ++ "}"
+
+simpleErrors :: SimpleForm ()
+simpleErrors = RG.errors render where
+  render [] = "No error"
+  render es = intercalate "," $ map unSimpleError es
 
 formIdStr :: String -> Int -> String
 formIdStr prefix num = prefix ++ "-fval[" ++ show num ++ "]"
@@ -53,6 +59,7 @@ main = hspec spec
 spec :: Spec
 spec = describe "Form" $ do
   spec_ap
+  spec_view
 
 spec_ap :: Spec
 spec_ap = describe "Applicative construction" $ do
@@ -90,3 +97,44 @@ spec_ap = describe "Applicative construction" $ do
     let env = map (\fid -> (formIdStr "foo" fid, show ((fid + 1) * 100))) [0 .. 10]
         got_data = formToData "foo" env form
     got_data `shouldBe` Right (100, (200, (300, 400), 500), 600, (700, 800))
+
+spec_view :: Spec
+spec_view = describe "view-only construction ((++>) etc.)" $ do
+  it "should append together in the Monoid way" $ do
+    let form :: SimpleForm ()
+        form = R.view "foo" ++> R.view "bar" <++ R.view "buzz"
+        got = formToView "hoge" form
+    got `shouldBe` "foobarbuzz"
+
+  it "should keep FormId" $ do
+    let form :: SimpleForm (Int, (Int, Int), Int)
+        form = (,,)
+               <$> (R.view "A:" ++> inputRead 10 <++ R.view ", ")
+               <*> (R.view "B:" ++> form_sub <++ R.view ", ")
+               <*> (R.view "C:" ++> inputRead 20)
+        form_sub = (,)
+                   <$> (R.view "Ba:" ++> inputRead 110 <++ R.view ", ")
+                   <*> (R.view "Bb:" ++> inputRead 120)
+        got = formToView "hoge" form
+    got `shouldBe` ( "A:" ++ expectedFormView "hoge" 0 "10" ++ ", "
+                     ++ "B:"
+                     ++ "Ba:" ++ expectedFormView "hoge" 1 "110" ++ ", "
+                     ++ "Bb:" ++ expectedFormView "hoge" 2 "120" ++ ", "
+                     ++ "C:" ++ expectedFormView "hoge" 3 "20"
+                   )
+
+  it "can be used to report errors" $ do
+    let form :: SimpleForm (Int,Int,Int)
+        form = (,,)
+               <$> (inputRead 10 <++ simpleErrors <++ R.view ", ")
+               <*> (inputRead 20 <++ simpleErrors <++ R.view ", ")
+               <*> (inputRead 30 <++ simpleErrors)
+        env = [ (formIdStr "hoge" 0, "100"),
+                (formIdStr "hoge" 1, "non-number"),
+                (formIdStr "hoge" 2, "300")
+              ]
+        got_data = formToData "hoge" env form
+    got_data `shouldBe` Left ( expectedFormView "hoge" 0 "100" ++ "No error, "
+                               ++ expectedFormView "hoge" 1 "20" ++ "parse error: non-number, "
+                               ++ expectedFormView "hoge" 2 "300" ++ "No error"
+                             )
