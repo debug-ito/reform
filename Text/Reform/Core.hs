@@ -72,6 +72,42 @@ getFormInput' id' = do
 getFormRange :: Monad m => FormState m i FormRange
 getFormRange = get
 
+-- | Utility function: returns the current 'FormId'. This will only make sense
+-- if the form is not composed
+--
+getFormId :: Monad m => FormState m i FormId
+getFormId = do
+    FormRange x _ <- get
+    return x
+
+-- | Utility function: increment the current 'FormId'.
+incFormId :: Monad m => FormState m i ()
+incFormId = do
+        FormRange _ endF1 <- get
+        put $ unitRange endF1
+
+bracketState :: Monad m => FormState m input a -> FormState m input a
+bracketState k = do
+    FormRange startF1 _ <- get
+    res <- k
+    FormRange _ endF2 <- get
+    put $ FormRange startF1 endF2
+    return res
+
+-- | Utility Function: turn a view and return value into a successful 'FormState'
+mkOk :: (Monad m) =>
+         FormId
+      -> view
+      -> a
+      -> FormState m input (View error view, m (Result error (Proved () a)))
+mkOk i view val =
+    return ( View $ const $ view
+           , return $ Ok (Proved { proofs   = ()
+                                 , pos      = unitRange i
+                                 , unProved = val
+                                 })
+           )
+
 -- | The environment is where you get the actual input per form.
 --
 -- The 'NoEnvironment' constructor is typically used when generating a
@@ -99,20 +135,6 @@ instance (Monoid input, Monad m) => Monoid (Environment m input) where
                  (Found x, Found y) -> return $ Found (x `mappend` y)
                  (Found x, _      ) -> return $ Found x
                  (_      , Found y) -> return $ Found y
-
--- | Utility function: returns the current 'FormId'. This will only make sense
--- if the form is not composed
---
-getFormId :: Monad m => FormState m i FormId
-getFormId = do
-    FormRange x _ <- get
-    return x
-
--- | Utility function: increment the current 'FormId'.
-incFormId :: Monad m => FormState m i ()
-incFormId = do
-        FormRange _ endF1 <- get
-        put $ unitRange endF1
 
 -- | A view represents a visual representation of a form. It is composed of a
 -- function which takes a list of all errors and then produces a new view
@@ -184,15 +206,6 @@ instance (Monoid view, Monad m) => IndexedApplicative (Form m input error view) 
                                                                            , pos      = FormRange x y
                                                                            , unProved = f a
                                                                            })
-
-bracketState :: Monad m => FormState m input a -> FormState m input a
-bracketState k = do
-    FormRange startF1 _ <- get
-    res <- k
-    FormRange _ endF2 <- get
-    put $ FormRange startF1 endF2
-    return res
-
 
 instance (Functor m) => Functor (Form m input error view ()) where
     fmap f form =
@@ -284,6 +297,9 @@ eitherForm env id' form = do
         Error e  -> Left $ unView view' e
         Ok x     -> Right (unProved x)
 
+-- * Ways to construct a Form
+
+
 -- | create a 'Form' from some @view@.
 --
 -- This is typically used to turn markup like @\<br\>@ into a 'Form'.
@@ -341,16 +357,3 @@ mapView :: (Monad m, Functor m)
         -> Form m input error view' proof a  -- ^ Resulting form
 mapView f = Form . fmap (first $ fmap f) . unForm
 
--- | Utility Function: turn a view and return value into a successful 'FormState'
-mkOk :: (Monad m) =>
-         FormId
-      -> view
-      -> a
-      -> FormState m input (View error view, m (Result error (Proved () a)))
-mkOk i view val =
-    return ( View $ const $ view
-           , return $ Ok (Proved { proofs   = ()
-                                 , pos      = unitRange i
-                                 , unProved = val
-                                 })
-           )
