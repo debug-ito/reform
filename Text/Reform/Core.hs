@@ -141,10 +141,7 @@ instance (Monoid input, Monad m) => Monoid (Environment m input) where
 --
 newtype View error v = View
     { unView :: [(FormRange, error)] -> v
-    } deriving (Monoid)
-
-instance Functor (View e) where
-    fmap f (View g) = View $ f . g
+    } deriving (Monoid, Functor, Applicative)
 
 ------------------------------------------------------------------------------
 -- * Form
@@ -304,7 +301,7 @@ eitherForm env id' form = do
 -- See also: 'pure', 'ipure' and 'view'.
 pureForm :: (Monad m) => view -> proof -> a -> Form m input error view proof a
 pureForm v p a = Form $ do i <- getFormId
-                           return (View $ const v, return $ Ok (Proved p (unitRange i) a))
+                           return (pure v, return $ Ok (Proved p (unitRange i) a))
 
 -- | create a 'Form' from some @view@.
 --
@@ -337,7 +334,7 @@ apForm (Form frmF) (Form frmA) =
                  incFormId
                  res2 <- frmA
                  return (res1, res2)
-            let result_view = View $ \es -> (unView fview) es (unView aview $ es)
+            let result_view = fview <*> aview
             fok <- lift $ lift $ mfok
             aok <- lift $ lift $ maok
             case (fok, aok) of
@@ -406,5 +403,4 @@ zipViewWith zipper (Form vform) (Form aform) = Form $ do
   -- Evaluate the form that matters first, so we have a correct range set
   (aview, r) <- aform
   (vview, _) <- vform
-  let result_view = View $ \es -> zipper (unView vview $ es) (unView aview $ es)
-  return (result_view, r)
+  return (zipper <$> vview <*> aview, r)
