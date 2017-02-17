@@ -183,59 +183,16 @@ instance (Monad m) => IndexedFunctor (Form m input view error) where
                     (Error errs)          -> return (view, return $ Error errs)
 
 instance (Monoid view, Monad m) => IndexedApplicative (Form m input error view) where
-    ipure p a = Form $ do i <- getFormId
-                          return (mempty, return $ Ok (Proved p (unitRange i) a))
-
-    (Form frmF) <<*>> (Form frmA) =
-        Form $ do ((view1, mfok), (view2, maok)) <- bracketState $
-                    do res1 <- frmF
-                       incFormId
-                       res2 <- frmA
-                       return (res1, res2)
-                  fok <- lift $ lift $ mfok
-                  aok <- lift $ lift $ maok
-                  case (fok, aok) of
-                     (Error errs1, Error errs2) -> return (view1 `mappend` view2, return $ Error $ errs1 ++ errs2)
-                     (Error errs1, _)           -> return (view1 `mappend` view2, return $ Error $ errs1)
-                     (_          , Error errs2) -> return (view1 `mappend` view2, return $ Error $ errs2)
-                     (Ok (Proved p (FormRange x _) f), Ok (Proved q (FormRange _ y) a)) ->
-                         return (view1 `mappend` view2, return $ Ok $ Proved { proofs   = p q
-                                                                           , pos      = FormRange x y
-                                                                           , unProved = f a
-                                                                           })
+    ipure p a = pureForm mempty p a
+    fform <<*>> aform = mapView mappend fform `apForm` aform
 
 instance (Functor m) => Functor (Form m input error view ()) where
     fmap f form =
         Form $ fmap (second (fmap (fmap (fmap f)))) (unForm form)
 
-
 instance (Functor m, Monoid view, Monad m) => Applicative (Form m input error view ()) where
-    pure a =
-      Form $
-        do i <- getFormId
-           return (View $ const $ mempty, return $ Ok $ Proved { proofs    = ()
-                                                               , pos       = FormRange i i
-                                                               , unProved  = a
-                                                               })
-    -- this coud be defined in terms of <<*>> if we just changed the proof of frmF to (() -> ())
-    (Form frmF) <*> (Form frmA) =
-       Form $
-         do ((view1, mfok), (view2, maok)) <- bracketState $
-              do res1 <- frmF
-                 incFormId
-                 res2 <- frmA
-                 return (res1, res2)
-            fok <- lift $ lift $ mfok
-            aok <- lift $ lift $ maok
-            case (fok, aok) of
-              (Error errs1, Error errs2) -> return (view1 `mappend` view2, return $ Error $ errs1 ++ errs2)
-              (Error errs1, _)           -> return (view1 `mappend` view2, return $ Error $ errs1)
-              (_          , Error errs2) -> return (view1 `mappend` view2, return $ Error $ errs2)
-              (Ok (Proved p (FormRange x _) f), Ok (Proved q (FormRange _ y) a)) ->
-                  return (view1 `mappend` view2, return $ Ok $ Proved { proofs   = ()
-                                                                      , pos      = FormRange x y
-                                                                      , unProved = f a
-                                                                      })
+    pure a = pureForm mempty () a
+    fform <*> aform = imap const id fform <<*>> aform
 
 -- ** Ways to evaluate a Form
 
@@ -301,7 +258,7 @@ eitherForm env id' form = do
 -- See also: 'pure', 'ipure' and 'view'.
 pureForm :: (Monad m) => view -> proof -> a -> Form m input error view proof a
 pureForm v p a = Form $ do i <- getFormId
-                           return (pure v, return $ Ok (Proved p (unitRange i) a))
+                           return (pure v, return $ Ok (Proved p (unitRange i) a)) -- which should we use, (unitRange i) or (FormRange i i)??
 
 -- | create a 'Form' from some @view@.
 --
