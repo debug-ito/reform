@@ -347,6 +347,7 @@ mapView :: (Monad m)
         -> Form m input error view  proof a  -- ^ Initial form
         -> Form m input error view' proof a  -- ^ Resulting form
 mapView f = Form . fmap' (first $ fmap f) . unForm where
+  -- simulate 'fmap' with Monad for old GHCs.
   fmap' f ma = ma >>= \a -> return $ f a
 
 -- | Zip the view of the first 'Form' to the second.
