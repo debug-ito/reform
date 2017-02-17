@@ -342,11 +342,12 @@ infixr 5 <++
 -- | Change the view of a form using a simple function
 --
 -- This is useful for wrapping a form inside of a \<fieldset\> or other markup element.
-mapView :: (Monad m, Functor m)
+mapView :: (Monad m)
         => (view -> view')        -- ^ Manipulator
         -> Form m input error view  proof a  -- ^ Initial form
         -> Form m input error view' proof a  -- ^ Resulting form
-mapView f = Form . fmap (first $ fmap f) . unForm
+mapView f = Form . fmap' (first $ fmap f) . unForm where
+  fmap' f ma = ma >>= \a -> return $ f a
 
 -- | Zip the view of the first 'Form' to the second.
 -- 
